@@ -75,12 +75,13 @@ def pair_sums_by(
             wij = wi * w[None, j0:j1] * valid
             s = np.sign(yj - yi) * wij
             same = c[None, j0:j1] == ci[:, None]
-            w_same_row = np.where(same, wij, 0.0).sum(axis=1)
-            s_same_row = np.where(same, s, 0.0).sum(axis=1)
-            deno_by += np.bincount(ci, weights=w_same_row, minlength=n_groups)
-            nume_by += np.bincount(ci, weights=s_same_row, minlength=n_groups)
-            deno_between += wij.sum() - w_same_row.sum()
-            nume_between += s.sum() - s_same_row.sum()
+            w_same = np.where(same, wij, 0.0)
+            s_same = np.where(same, s, 0.0)
+            deno_by += np.bincount(ci, weights=w_same.sum(axis=1), minlength=n_groups)
+            nume_by += np.bincount(ci, weights=s_same.sum(axis=1), minlength=n_groups)
+            # element-wise differences are exact where same-group entries cancel
+            deno_between += (wij - w_same).sum()
+            nume_between += (s - s_same).sum()
 
     deno_within = deno_by.sum()
     nume_within = nume_by.sum()
