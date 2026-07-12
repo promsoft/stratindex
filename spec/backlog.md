@@ -16,4 +16,4 @@
 ## Прочее (мелочи)
 - [x] `repr` результатов в Jupyter: `_repr_html_` с таблицами (overall + декомпозиция + страты, экранирование меток) — ✅ 0.2.0
 - [x] Бутстреп-SE: `strat(..., se_method="bootstrap", n_boot=200, random_state=...)`; ранги и порядок страт пересчитываются в каждой реплике; по умолчанию остаётся аппроксимация Goodman–Kruskal — ✅ 0.2.0
-- [ ] Опубликовать документацию (mkdocs / readthedocs), badge CI и PyPI в README — в работе
+- [x] Документация: mkdocs + material + mkdocstrings, деплой на GitHub Pages (https://promsoft.github.io/stratindex/, workflow `docs.yml`); badges CI/PyPI/docs/license в README — ✅ 0.2.0
