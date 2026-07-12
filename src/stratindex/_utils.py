@@ -42,6 +42,55 @@ def _is_na(arr: np.ndarray) -> np.ndarray:
     return np.zeros(arr.shape, dtype=bool)
 
 
+def _as_categorical(values) -> tuple[np.ndarray, np.ndarray] | None:
+    """Return ``(categories, codes)`` for pandas-categorical-like input, else None.
+
+    Accepts a ``pandas.Categorical`` (or anything exposing ``categories`` and
+    ``codes``) as well as a pandas Series of dtype ``category``.
+    """
+    if str(getattr(values, "dtype", "")) == "category" and hasattr(values, "values"):
+        values = values.values  # Series[category] -> Categorical
+    if hasattr(values, "categories") and hasattr(values, "codes"):
+        return np.asarray(values.categories), np.asarray(values.codes)
+    return None
+
+
+class _Factor:
+    """Level encoding of strata/group values.
+
+    Mirrors R's ``factor()``: for plain arrays, levels are the sorted unique
+    values; for pandas categoricals, the category order is respected and
+    unused categories are dropped (keeping the order). Missing values are
+    exposed via ``na`` before encoding.
+    """
+
+    def __init__(self, values):
+        cat = _as_categorical(values)
+        if cat is not None:
+            self._categories, self._codes = cat
+            self._values = None
+            self.ndim = self._codes.ndim
+            self.na = self._codes == -1
+        else:
+            self._categories = None
+            self._values = np.asarray(values)
+            self.ndim = self._values.ndim
+            self.na = _is_na(self._values)
+
+    def __len__(self) -> int:
+        return len(self.na)
+
+    def encode(self, ok: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Return ``(levels, codes)`` for the rows selected by ``ok``."""
+        if self._categories is None:
+            return np.unique(self._values[ok], return_inverse=True)
+        kept = self._codes[ok]
+        present = np.unique(kept)
+        remap = np.zeros(len(self._categories), dtype=np.intp)
+        remap[present] = np.arange(len(present))
+        return self._categories[present], remap[kept]
+
+
 @dataclass
 class CleanData:
     """Complete cases of all inputs, ready for the pairwise kernel.
@@ -78,8 +127,8 @@ def clean(
         raise ValueError("outcome has to be a non-empty numeric 1-d array")
     outcome = outcome.astype(float)
 
-    strata = np.asarray(strata)
-    if strata.ndim != 1 or len(strata) != len(outcome):
+    strata_f = _Factor(strata)
+    if strata_f.ndim != 1 or len(strata_f) != len(outcome):
         raise ValueError("outcome and strata have to be of equal length")
 
     if weights is None:
@@ -92,16 +141,16 @@ def clean(
             raise ValueError("outcome and weights have to be of equal length")
         weights_arr = weights_arr.astype(float)
 
-    group_arr: np.ndarray | None = None
+    group_f: _Factor | None = None
     if group is not None:
-        group_arr = np.asarray(group)
-        if group_arr.ndim != 1 or len(group_arr) != len(outcome):
+        group_f = _Factor(group)
+        if group_f.ndim != 1 or len(group_f) != len(outcome):
             raise ValueError("outcome and group have to be of equal length")
         # R's strat() rejects missing values in group up front
-        if _is_na(group_arr).any():
+        if group_f.na.any():
             raise ValueError("group contains missing values")
 
-    ok = ~(_is_na(outcome) | _is_na(strata) | _is_na(weights_arr))
+    ok = ~(_is_na(outcome) | strata_f.na | _is_na(weights_arr))
     n = int(ok.sum())
     if n == 0:
         raise ValueError("no complete cases!")
@@ -109,11 +158,11 @@ def clean(
     outcome = outcome[ok]
     weights_arr = weights_arr[ok]
     weights_arr = weights_arr / weights_arr.sum() * n
-    strata_levels, strata_codes = np.unique(strata[ok], return_inverse=True)
+    strata_levels, strata_codes = strata_f.encode(ok)
 
     group_codes = group_levels = None
-    if group_arr is not None:
-        group_levels, group_codes = np.unique(group_arr[ok], return_inverse=True)
+    if group_f is not None:
+        group_levels, group_codes = group_f.encode(ok)
 
     prank = wtd_rank(outcome, weights_arr) / n
 
