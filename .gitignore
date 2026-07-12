@@ -220,3 +220,6 @@ __marimo__/
 # local env (pyenv virtualenv symlink + version file)
 venv
 .python-version
+
+# mkdocs build output
+site/

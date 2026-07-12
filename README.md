@@ -1,7 +1,14 @@
 # stratindex
 
+[![CI](https://github.com/promsoft/stratindex/actions/workflows/ci.yml/badge.svg)](https://github.com/promsoft/stratindex/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/stratindex)](https://pypi.org/project/stratindex/)
+[![Docs](https://img.shields.io/badge/docs-promsoft.github.io%2Fstratindex-blue)](https://promsoft.github.io/stratindex/)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-green)](LICENSE)
+
 A nonparametric index of stratification (Zhou 2012) — a Python port of the R
 package [strat](https://cran.r-project.org/package=strat) by Xiang Zhou.
+
+Documentation: https://promsoft.github.io/stratindex/
 
 The index measures how strongly a set of strata (social classes, occupations,
 schools, …) stratifies a numeric outcome (income, test scores, …). It is the
@@ -57,9 +64,23 @@ between education  0.7565  0.4592
 ```
 
 Results are plain dataclasses: `s.strat`, `s.std_error`, `s.strata_info`,
-`s.decomposition`, `s.within_group`. If pandas is installed,
-`s.to_pandas()` returns the tables as DataFrames, and
+`s.decomposition`, `s.within_group`; in Jupyter they render as HTML tables.
+If pandas is installed, `s.to_pandas()` returns the tables as DataFrames, and
 `load_cpsmarch2015(as_pandas=True)` returns a DataFrame.
+
+A DataFrame (or any mapping of columns, like the dict above) can be passed
+directly — string keywords are resolved as column names, and the group label
+is taken from the column name:
+
+```python
+s = strat(d, outcome="income", strata="big_class",
+          weights="weight", group="education")
+```
+
+pandas `Categorical` strata keep their category order (used by
+`ordered=True` and for row order in the tables). Besides the default
+Goodman–Kruskal approximation, a bootstrap standard error is available:
+`strat(..., se_method="bootstrap", n_boot=500, random_state=0)`.
 
 ## Correspondence with the R package
 
@@ -78,10 +99,11 @@ Behavioral notes:
 - Strata and group levels are ordered by their sorted unique values (as R's
   `factor()` does for character vectors). With `ordered=True` this level
   order is the stratum order.
-- R derives the group label from the expression passed as `group`; pass
-  `group_name=` explicitly in Python.
-- The O(n²) pairwise kernel (C++ in the original) is implemented as blocked,
-  vectorized NumPy; the full 14,358-row example runs in a few seconds.
+- R derives the group label from the expression passed as `group`; Python
+  uses the column name in data mode (or `group_name=` explicitly).
+- The pairwise comparisons (an O(n²) C++ loop in the original) are computed
+  in O(n log n) via weighted inversion counting; the full 14,358-row example
+  runs in a fraction of a second.
 - Numerical output is cross-validated against the original R package
   (see `tests/data/r_golden.json`, regenerated with `scripts/r_golden.R`).
 
