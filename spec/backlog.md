@@ -14,6 +14,6 @@
 - [x] `strat(df, outcome="income", strata="big_class", weights="weight", group="education")` — первый аргумент DataFrame или любой Mapping (в т.ч. dict из `load_cpsmarch2015()`); строковые keyword-аргументы разрешаются как имена колонок; `group_name` автоматически = имя колонки group; pandas не стал зависимостью (duck-typing по `.columns`/Mapping); позиционные вызовы массивами полностью совместимы
 
 ## Прочее (мелочи)
-- `repr` результатов в Jupyter: `_repr_html_` с таблицами.
-- Бутстреп-SE как альтернатива аппроксимации Goodman–Kruskal (в статье Zhou 2012 SE оценивается и так).
-- Опубликовать документацию (mkdocs / readthedocs), badge CI и PyPI в README.
+- [x] `repr` результатов в Jupyter: `_repr_html_` с таблицами (overall + декомпозиция + страты, экранирование меток) — ✅ 0.2.0
+- [x] Бутстреп-SE: `strat(..., se_method="bootstrap", n_boot=200, random_state=...)`; ранги и порядок страт пересчитываются в каждой реплике; по умолчанию остаётся аппроксимация Goodman–Kruskal — ✅ 0.2.0
+- [ ] Опубликовать документацию (mkdocs / readthedocs), badge CI и PyPI в README — в работе
