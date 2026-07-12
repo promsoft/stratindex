@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stratindex"
-version = "0.1.0"
+version = "0.2.0"
 description = "A nonparametric index of stratification (Zhou 2012): Python port of the R package 'strat'"
 readme = "README.md"
 license = "GPL-3.0-or-later"

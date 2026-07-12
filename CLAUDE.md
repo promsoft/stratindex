@@ -22,10 +22,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-- `src/stratindex/_utils.py` — `clean()` (validation, complete cases, weight normalization to sum n) and `wtd_rank()` (port of `Hmisc::wtd.rank(normwt=TRUE)`, weighted midranks). Percentile ranks of equal outcomes are exactly equal by construction (unique-value mapping, not interpolation) — the kernel's tie-skipping depends on this.
-- `src/stratindex/_kernel.py` — blocked NumPy ports of the C++ pairwise kernels (`strat_cpp`, `strat_cpp_by`). Inputs must be pre-sorted by `r`. Between-group sums use element-wise differences, not sum-of-sums subtraction, to keep exact zeros exact.
-- `src/stratindex/core.py` — public `strat()` / `srank()`; `results.py` — result dataclasses whose `__str__` mirrors the R print methods; `datasets.py` — bundled `cpsmarch2015` loader.
-- `tests/conftest.py` holds naive loop-based reference implementations translated literally from the R/C++ sources; kernel tests compare against them across block sizes.
+- `src/stratindex/_utils.py` — `clean()` (validation, complete cases, weight normalization to sum n), `_Factor` (level encoding: sorted unique values for plain arrays, category order for pandas Categorical, R `factor()` semantics), and `wtd_rank()` (port of `Hmisc::wtd.rank(normwt=TRUE)`, weighted midranks). Percentile ranks of equal outcomes are exactly equal by construction (unique-value mapping, not interpolation) — the kernel's tie-skipping depends on this.
+- `src/stratindex/_kernel.py` — `pair_sums`/`pair_sums_by` are O(n log n): Fenwick-tree weighted inversion counting for the numerator, inclusion-exclusion over tie blocks for the denominator; inputs must be pre-sorted by `r`; sums are returned as `np.float64` so degenerate 0/0 yields NaN (as in R), not ZeroDivisionError. The original O(n²) blocked ports (`pair_sums_blocked`/`_by_blocked`) are kept solely as an independent reference for tests.
+- `src/stratindex/core.py` — public `strat()` / `srank()` with two call styles resolved by `_resolve_inputs` (arrays positionally, or DataFrame/mapping first with column-name keywords); bootstrap SE (`se_method="bootstrap"`) recomputes ranks and stratum order per replicate.
+- `results.py` — result dataclasses; `__str__` mirrors the R print methods, `_repr_html_` renders tables in Jupyter. `datasets.py` — bundled `cpsmarch2015` loader.
+- `tests/conftest.py` holds naive loop-based reference implementations translated literally from the R/C++ sources; kernel tests compare fast and blocked against them.
+
+## Docs
+
+`docs/` + `mkdocs.yml` (material, mkdocstrings). Build locally: `venv/bin/mkdocs build --strict`. Deployed to https://promsoft.github.io/stratindex/ by `.github/workflows/docs.yml` (gh-deploy to the `gh-pages` branch) on pushes to main touching docs or src.
 
 ## Cross-validation against R
 
