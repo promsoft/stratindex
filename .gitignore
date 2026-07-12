@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# local env (pyenv virtualenv symlink + version file)
+venv
+.python-version

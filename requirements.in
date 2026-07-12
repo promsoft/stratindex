@@ -1,0 +1,9 @@
+# runtime
+numpy>=1.26
+
+# dev / test
+pytest
+ruff
+pyreadr        # one-off: convert cpsmarch2015.rda to csv.gz
+pandas         # dev-only: dataset conversion and convenience in tests
+build
