@@ -60,12 +60,16 @@ R- библиотка для расчета его https://cran.r-project.org/we
 - [x] `publish.yml`: тег `v*` → build + smoke-тест wheel + PyPI (trusted publishing, env `pypi`); workflow_dispatch → TestPyPI (env `testpypi`)
 - [x] CLAUDE.md обновлён реальными командами и архитектурой
 
-## Этап 6. Релиз 0.1.0 — 🔄 ожидает настройки PyPI
+## Этап 6. Релиз 0.1.0 — ✅ опубликовано (2026-07-12)
 - [x] Сборка `uv build`: wheel + sdist собраны, `twine check` PASSED, wheel проверен установкой в чистое окружение
 - [x] CI на main зелёный (тесты 3.12/3.13, ruff, r-crosscheck)
-- [ ] **Действие пользователя**: настроить trusted publisher на https://pypi.org/manage/account/publishing/ → Add a new pending publisher: project `stratindex`, owner `promsoft`, repository `stratindex`, workflow `publish.yml`, environment `pypi`
-- [ ] (опционально) то же на https://test.pypi.org (environment `testpypi`) + ручной запуск workflow Publish → прогон на TestPyPI
-- [ ] Тег `v0.1.0` + push → публикация на PyPI
+- [x] Trusted publisher настроен пользователем (без TestPyPI)
+- [x] Тег `v0.1.0` → workflow Publish → **https://pypi.org/project/stratindex/0.1.0/**
+- [x] Проверка: `pip install stratindex` в чистом окружении, пример из R-документации воспроизводится (strat=0.4128, se=0.01296)
+
+# Итог
+
+Задача выполнена: R-пакет `strat` портирован на Python 3.12 и опубликован на PyPI как `stratindex` 0.1.0. Численная эквивалентность оригиналу подтверждена кросс-проверкой с CRAN-пакетом (rtol ~1e-11) и закреплена в CI.
 
 # Справка: устройство оригинального R-пакета
 
