@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`stratindex` — Python port of the R package `strat` (https://cran.r-project.org/package=strat), implementing the nonparametric stratification index of Zhou (2012). Published on PyPI as `stratindex`. License is GPL-3.0-or-later (the port is a derivative of the GPL R package — do not relicense). Task spec and progress checklist live in `spec/stratindex.md` (in Russian); update the checklist when completing stages.
+`stratindex` — Python port of the R package `strat` (https://cran.r-project.org/package=strat), implementing the nonparametric stratification index of Zhou (2012). Published on PyPI as `stratindex` (0.1.0 released 2026-07-12). License is GPL-3.0-or-later (the port is a derivative of the GPL R package — do not relicense).
+
+## Spec workflow
+
+- `spec/stratindex.md` (in Russian) holds the task spec, the Q&A decisions, and the progress checklist; `spec/backlog.md` holds ideas for future versions. Keep them current: record new decisions and check off completed work.
+- Commit and push immediately after every change to `spec/` — don't batch spec edits with unrelated work.
+- CI ignores `spec/**` (`paths-ignore` in `ci.yml`), so spec-only pushes don't burn Actions minutes. A commit that touches both spec and code still runs CI.
 
 ## Environment & commands
 
