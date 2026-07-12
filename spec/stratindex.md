@@ -53,12 +53,12 @@ R- библиотка для расчета его https://cran.r-project.org/we
 - [x] Прогон на `cpsmarch2015`: regression-snapshot (strat=0.41275, se=0.01296) — до сверки с R в CI
 - [x] Найдено и исправлено: точность `deno_between` в блочном ядре (поэлементная разность вместо разности сумм); prank может слегка превышать 1 (свойство Hmisc::wtd.rank, воспроизведено 1:1)
 
-## Этап 5. Документация и CI
-- [ ] README (EN): формула, пример на `cpsmarch2015`, соответствие R-API
-- [ ] GitHub Actions: тесты + ruff на push
-- [ ] CI-job с r-base (docker) — золотые значения из оригинального R-пакета, фиксация в fixtures
-- [ ] Workflow публикации на тег `v*` (trusted publishing)
-- [ ] Обновить CLAUDE.md реальными командами
+## Этап 5. Документация и CI — ✅ сделано
+- [x] README (EN): формула, пример на `cpsmarch2015`, таблица соответствия R-API, поведенческие заметки
+- [x] GitHub Actions `ci.yml`: pytest (3.12, 3.13) + ruff check/format
+- [x] Золотые значения из R: сгенерированы локально в docker (rocker/r2u, CRAN strat 0.1) → `tests/data/r_golden.json`; `tests/test_r_golden.py` сверяет 6 кейсов + srank (rtol 1e-9, совпадение ~1e-11); CI-job `r-crosscheck` перегенерирует и сверяет fixture с CRAN
+- [x] `publish.yml`: тег `v*` → build + smoke-тест wheel + PyPI (trusted publishing, env `pypi`); workflow_dispatch → TestPyPI (env `testpypi`)
+- [x] CLAUDE.md обновлён реальными командами и архитектурой
 
 ## Этап 6. Релиз 0.1.0
 - [ ] Сборка `uv build`, прогон на TestPyPI
