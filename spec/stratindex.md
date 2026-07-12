@@ -41,9 +41,10 @@ R- библиотка для расчета его https://cran.r-project.org/we
 - [x] `core.py`: публичные `srank()` и `strat()` (декомпозиция between/within, SE по Goodman–Kruskal 1963)
 - [x] Экспорты в `__init__.py`, smoke-прогон: сверка с наивной O(n²) реализацией сошлась до 1e-12
 
-## Этап 3. Датасет
-- [ ] Конвертация `cpsmarch2015.rda` → `cpsmarch2015.csv.gz` (pyreadr, dev-скрипт)
-- [ ] Включение в пакет + `load_cpsmarch2015()`
+## Этап 3. Датасет — ✅ сделано
+- [x] Конвертация `cpsmarch2015.rda` → `cpsmarch2015.csv.gz` (`scripts/convert_dataset.py`, pyreadr, воспроизводимый gzip)
+- [x] Включение в пакет (`src/stratindex/data/`) + `load_cpsmarch2015()` (dict of ndarrays или pandas DataFrame)
+- [x] Прогон примера из R-документации: `strat(income, big_class, weights=weight, group=education)` → strat=0.4128, se=0.01296, ~6 с на 14 358 строк
 
 ## Этап 4. Тесты
 - [ ] Ручные маленькие примеры (значения посчитаны по определению)

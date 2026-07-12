@@ -5,8 +5,9 @@ Python port of the R package 'strat' by Xiang Zhou
 """
 
 from .core import srank, strat
+from .datasets import load_cpsmarch2015
 from .results import SrankResult, StratResult
 
 __version__ = "0.1.0"
 
-__all__ = ["srank", "strat", "SrankResult", "StratResult", "__version__"]
+__all__ = ["srank", "strat", "SrankResult", "StratResult", "load_cpsmarch2015", "__version__"]
