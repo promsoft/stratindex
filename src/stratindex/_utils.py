@@ -102,6 +102,7 @@ class CleanData:
     """
 
     prank: np.ndarray
+    outcome: np.ndarray
     strata_codes: np.ndarray
     strata_levels: np.ndarray
     weights: np.ndarray
@@ -168,6 +169,7 @@ def clean(
 
     return CleanData(
         prank=prank,
+        outcome=outcome,
         strata_codes=strata_codes,
         strata_levels=strata_levels,
         weights=weights_arr,

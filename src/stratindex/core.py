@@ -11,7 +11,7 @@ from collections.abc import Mapping
 import numpy as np
 
 from ._kernel import pair_sums, pair_sums_by
-from ._utils import CleanData, clean
+from ._utils import CleanData, clean, wtd_rank
 from .results import SrankResult, StratResult
 
 __all__ = ["srank", "strat"]
@@ -68,6 +68,33 @@ def _resolve_inputs(fn_name, args, outcome, strata, weights, group, group_name):
     if outcome is None or strata is None:
         raise TypeError(f"{fn_name}() requires outcome and strata")
     return outcome, strata, weights, group, group_name
+
+
+def _index_only(outcome, strata_codes, weights, ordered: bool, n_strata: int) -> float:
+    """Overall index for already-encoded complete cases (bootstrap replicate)."""
+    n = len(outcome)
+    w = weights / weights.sum() * n
+    prank = wtd_rank(outcome, w) / n
+    with np.errstate(invalid="ignore", divide="ignore"):
+        w_by = np.bincount(strata_codes, weights=w, minlength=n_strata)
+        s_prank = np.bincount(strata_codes, weights=w * prank, minlength=n_strata) / w_by
+        sort_by = strata_codes.astype(float) if ordered else s_prank[strata_codes]
+        order = np.argsort(sort_by, kind="stable")
+        deno, nume = pair_sums(prank[order], sort_by[order], w[order])
+        return float(nume / deno)
+
+
+def _bootstrap_se(cd: CleanData, ordered: bool, n_boot: int, random_state) -> float:
+    rng = np.random.default_rng(random_state)
+    reps = np.empty(n_boot)
+    k = len(cd.strata_levels)
+    for b in range(n_boot):
+        idx = rng.integers(0, cd.n, cd.n)
+        reps[b] = _index_only(cd.outcome[idx], cd.strata_codes[idx], cd.weights[idx], ordered, k)
+    reps = reps[np.isfinite(reps)]  # degenerate resamples (no comparable pairs)
+    if len(reps) < 2:
+        return float("nan")
+    return float(reps.std(ddof=1))
 
 
 def _summarize(cd: CleanData) -> dict[str, np.ndarray]:
@@ -132,6 +159,9 @@ def strat(
     ordered: bool = False,
     group=None,
     group_name: str | None = None,
+    se_method: str = "approx",
+    n_boot: int = 200,
+    random_state=None,
 ) -> StratResult:
     """Compute the stratification index proposed in Zhou (2012).
 
@@ -161,6 +191,15 @@ def strat(
         Label used for the group in printed output (R derives it from the
         expression passed as ``group``; Python uses the column name in data
         mode, else "group", unless given explicitly).
+    se_method:
+        ``"approx"`` (default) — the Goodman & Kruskal (1963) approximation,
+        as in the R package; ``"bootstrap"`` — standard deviation of the
+        index over ``n_boot`` resamples of the complete cases (percentile
+        ranks and stratum order are recomputed in every replicate).
+    n_boot:
+        Number of bootstrap replicates (``se_method="bootstrap"`` only).
+    random_state:
+        Seed or ``numpy.random.Generator`` for the bootstrap.
 
     Returns
     -------
@@ -181,6 +220,8 @@ def strat(
         group_name = "group"
     if not isinstance(ordered, bool):
         raise ValueError("ordered has to be a valid logical scalar")
+    if se_method not in ("approx", "bootstrap"):
+        raise ValueError('se_method has to be "approx" or "bootstrap"')
 
     cd = clean(outcome, strata, weights=weights, group=group)
     strata_info = _summarize(cd)
@@ -223,10 +264,15 @@ def strat(
                 "strat": sums["nume_by"] / sums["deno_by"],
             }
 
-    # approximate standard error (Goodman & Kruskal 1963)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        arg = deno / (1.0 - index**2) / cd.n
-        std_error = 1.0 / np.sqrt(arg)
+    if se_method == "bootstrap":
+        if not isinstance(n_boot, int) or n_boot < 2:
+            raise ValueError("n_boot has to be an integer >= 2")
+        std_error = _bootstrap_se(cd, ordered, n_boot, random_state)
+    else:
+        # approximate standard error (Goodman & Kruskal 1963)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            arg = deno / (1.0 - index**2) / cd.n
+            std_error = 1.0 / np.sqrt(arg)
 
     return StratResult(
         strat=float(index),

@@ -6,6 +6,7 @@ of the R package.
 
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -15,6 +16,23 @@ def _fmt(value: float, digits: int) -> str:
     if isinstance(value, float) and np.isnan(value):
         return "nan"
     return f"{value:.{digits}g}"
+
+
+def _html_cell(value, digits: int) -> str:
+    if isinstance(value, (int, float, np.floating)):
+        return f'<td style="text-align:right">{_fmt(float(value), digits)}</td>'
+    return f"<td>{html.escape(str(value))}</td>"
+
+
+def _html_table(columns: dict[str, list | np.ndarray], digits: int, caption: str = "") -> str:
+    head = "".join(f"<th>{html.escape(name)}</th>" for name in columns)
+    n_rows = len(next(iter(columns.values())))
+    body = "".join(
+        "<tr>" + "".join(_html_cell(col[i], digits) for col in columns.values()) + "</tr>"
+        for i in range(n_rows)
+    )
+    cap = f"<caption>{html.escape(caption)}</caption>" if caption else ""
+    return f"<table>{cap}<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
 
 
 def _table(columns: dict[str, list | np.ndarray], digits: int) -> str:
@@ -61,6 +79,9 @@ class SrankResult:
 
     def __str__(self) -> str:
         return self.format()
+
+    def _repr_html_(self) -> str:
+        return _html_table(self.summary, digits=3)
 
 
 @dataclass
@@ -111,19 +132,46 @@ class StratResult:
             _table({"strat": [self.strat], "std_error": [self.std_error]}, digits),
         ]
         if self.decomposition is not None:
-            rows = {
-                "": [f"within {self.group_name}", f"between {self.group_name}"],
-                "weight": [
-                    self.decomposition["within"]["weight"],
-                    self.decomposition["between"]["weight"],
-                ],
-                "strat": [
-                    self.decomposition["within"]["strat"],
-                    self.decomposition["between"]["strat"],
-                ],
-            }
-            lines += ["", f"decomposition by {self.group_name}:", "", _table(rows, digits)]
+            lines += [
+                "",
+                f"decomposition by {self.group_name}:",
+                "",
+                _table(self._decomposition_rows(), digits),
+            ]
         return "\n".join(lines)
+
+    def _decomposition_rows(self) -> dict[str, list]:
+        return {
+            "": [f"within {self.group_name}", f"between {self.group_name}"],
+            "weight": [
+                self.decomposition["within"]["weight"],
+                self.decomposition["between"]["weight"],
+            ],
+            "strat": [
+                self.decomposition["within"]["strat"],
+                self.decomposition["between"]["strat"],
+            ],
+        }
 
     def __str__(self) -> str:
         return self.format()
+
+    def _repr_html_(self) -> str:
+        digits = 3
+        parts = [
+            _html_table(
+                {"strat": [self.strat], "std_error": [self.std_error]},
+                digits,
+                caption="overall stratification",
+            )
+        ]
+        if self.decomposition is not None:
+            parts.append(
+                _html_table(
+                    self._decomposition_rows(),
+                    digits,
+                    caption=f"decomposition by {self.group_name}",
+                )
+            )
+        parts.append(_html_table(self.strata_info, digits, caption="strata"))
+        return "<div>" + "".join(parts) + "</div>"
