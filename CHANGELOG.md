@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-07-13)
 
 - **O(n log n) kernel**: pairwise comparisons are now computed via weighted
   inversion counting (Fenwick tree) with an inclusion-exclusion denominator
