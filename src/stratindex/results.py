@@ -18,10 +18,18 @@ def _fmt(value: float, digits: int) -> str:
     return f"{value:.{digits}g}"
 
 
-def _html_cell(value, digits: int) -> str:
+def _cell(value, digits: int) -> tuple[str, bool]:
+    """Render one table cell: ``(text, is_numeric)``."""
     if isinstance(value, (int, float, np.floating)):
-        return f'<td style="text-align:right">{_fmt(float(value), digits)}</td>'
-    return f"<td>{html.escape(str(value))}</td>"
+        return _fmt(float(value), digits), True
+    return str(value), False
+
+
+def _html_cell(value, digits: int) -> str:
+    text, numeric = _cell(value, digits)
+    if numeric:
+        return f'<td style="text-align:right">{text}</td>'
+    return f"<td>{html.escape(text)}</td>"
 
 
 def _html_table(columns: dict[str, list | np.ndarray], digits: int, caption: str = "") -> str:
@@ -39,10 +47,7 @@ def _table(columns: dict[str, list | np.ndarray], digits: int) -> str:
     """Render a dict of equal-length columns as an aligned text table."""
     cells: dict[str, list[str]] = {}
     for name, col in columns.items():
-        cells[name] = [
-            _fmt(float(v), digits) if isinstance(v, (int, float, np.floating)) else str(v)
-            for v in col
-        ]
+        cells[name] = [_cell(v, digits)[0] for v in col]
     widths = {name: max(len(name), *(len(c) for c in col)) for name, col in cells.items()}
     lines = ["  ".join(name.rjust(widths[name]) for name in cells)]
     n_rows = len(next(iter(cells.values())))
@@ -125,11 +130,14 @@ class StratResult:
             return strata_info
         return strata_info, pd.DataFrame(self.within_group)
 
+    def _overall_rows(self) -> dict[str, list]:
+        return {name: [value] for name, value in self.overall.items()}
+
     def format(self, digits: int = 3) -> str:
         lines = [
             "overall stratification:",
             "",
-            _table({"strat": [self.strat], "std_error": [self.std_error]}, digits),
+            _table(self._overall_rows(), digits),
         ]
         if self.decomposition is not None:
             lines += [
@@ -158,13 +166,7 @@ class StratResult:
 
     def _repr_html_(self) -> str:
         digits = 3
-        parts = [
-            _html_table(
-                {"strat": [self.strat], "std_error": [self.std_error]},
-                digits,
-                caption="overall stratification",
-            )
-        ]
+        parts = [_html_table(self._overall_rows(), digits, caption="overall stratification")]
         if self.decomposition is not None:
             parts.append(
                 _html_table(

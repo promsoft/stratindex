@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from stratindex import load_cpsmarch2015, srank, strat
+from stratindex import srank, strat
 
 RTOL = 1e-9
 
@@ -25,8 +25,7 @@ SYNTH = {
 }
 
 
-def _python_result(case):
-    d = load_cpsmarch2015()
+def _python_result(case, d):
     if case == "main":
         return strat(d["income"], d["big_class"], weights=d["weight"], group=d["education"])
     if case == "unweighted":
@@ -51,9 +50,9 @@ def _by_label(labels, values):
 @pytest.mark.parametrize(
     "case", ["main", "unweighted", "micro", "micro_ordered", "synthetic", "synthetic_ordered"]
 )
-def test_strat_matches_r(case):
+def test_strat_matches_r(case, cps):
     golden = GOLDEN[case]
-    got = _python_result(case)
+    got = _python_result(case, cps)
 
     assert got.strat == pytest.approx(golden["strat"], rel=RTOL)
     assert got.std_error == pytest.approx(golden["std_error"], rel=RTOL)
@@ -86,9 +85,8 @@ def test_strat_matches_r(case):
         assert got.decomposition is None
 
 
-def test_srank_matches_r():
-    d = load_cpsmarch2015()
-    got = srank(d["income"], d["big_class"], weights=d["weight"])
+def test_srank_matches_r(cps):
+    got = srank(cps["income"], cps["big_class"], weights=cps["weight"])
     golden = GOLDEN["srank_main"]
     r_share = _by_label(golden["strata"], golden["share"])
     py_share = _by_label(got.summary["strata"], got.summary["share"])
@@ -98,8 +96,7 @@ def test_srank_matches_r():
     assert py_prank == pytest.approx(r_prank, rel=RTOL)
 
 
-def test_micro_class_ordering_note():
+def test_micro_class_ordering_note(cps):
     """micro_class is numeric, so R's factor() and np.unique() sort it the
     same way — this is what makes the ordered=True cross-check meaningful."""
-    d = load_cpsmarch2015()
-    assert d["micro_class"].dtype == int
+    assert cps["micro_class"].dtype == int

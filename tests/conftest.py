@@ -107,6 +107,78 @@ def naive_strat(outcome, strata, weights=None, ordered=False, group=None):
     return index, se
 
 
+def blocked_pair_sums(y, r, w, block=2048):
+    """O(n²) blocked NumPy reference (the 0.1.0 kernel), kept for cross-checks."""
+    n = y.size
+    deno = 0.0
+    nume = 0.0
+    for i0 in range(0, n, block):
+        i1 = min(i0 + block, n)
+        yi = y[i0:i1, None]
+        ri = r[i0:i1, None]
+        wi = w[i0:i1, None]
+        for j0 in range(i0, n, block):
+            j1 = min(j0 + block, n)
+            yj = y[None, j0:j1]
+            rj = r[None, j0:j1]
+            valid = (rj > ri) & (yj != yi)
+            if j0 == i0:
+                valid &= np.arange(j0, j1)[None, :] > np.arange(i0, i1)[:, None]
+            wij = wi * w[None, j0:j1] * valid
+            deno += wij.sum()
+            nume += (np.sign(yj - yi) * wij).sum()
+    return deno, nume
+
+
+def blocked_pair_sums_by(y, r, w, c, n_groups, block=2048):
+    """O(n²) blocked NumPy reference for the group decomposition."""
+    n = y.size
+    deno_by = np.zeros(n_groups)
+    nume_by = np.zeros(n_groups)
+    deno_between = 0.0
+    nume_between = 0.0
+    for i0 in range(0, n, block):
+        i1 = min(i0 + block, n)
+        yi = y[i0:i1, None]
+        ri = r[i0:i1, None]
+        wi = w[i0:i1, None]
+        ci = c[i0:i1]
+        for j0 in range(i0, n, block):
+            j1 = min(j0 + block, n)
+            yj = y[None, j0:j1]
+            rj = r[None, j0:j1]
+            valid = (rj > ri) & (yj != yi)
+            if j0 == i0:
+                valid &= np.arange(j0, j1)[None, :] > np.arange(i0, i1)[:, None]
+            wij = wi * w[None, j0:j1] * valid
+            s = np.sign(yj - yi) * wij
+            same = c[None, j0:j1] == ci[:, None]
+            w_same = np.where(same, wij, 0.0)
+            s_same = np.where(same, s, 0.0)
+            deno_by += np.bincount(ci, weights=w_same.sum(axis=1), minlength=n_groups)
+            nume_by += np.bincount(ci, weights=s_same.sum(axis=1), minlength=n_groups)
+            deno_between += (wij - w_same).sum()
+            nume_between += (s - s_same).sum()
+
+    deno_within = deno_by.sum()
+    nume_within = nume_by.sum()
+    return {
+        "deno_by": deno_by,
+        "nume_by": nume_by,
+        "deno_within": deno_within,
+        "nume_within": nume_within,
+        "deno_between": deno_between,
+        "nume_between": nume_between,
+    }
+
+
 @pytest.fixture(scope="session")
 def rng():
     return np.random.default_rng(20260712)
+
+
+@pytest.fixture(scope="session")
+def cps():
+    from stratindex import load_cpsmarch2015
+
+    return load_cpsmarch2015()

@@ -4,12 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from stratindex import load_cpsmarch2015, srank, strat
-
-
-@pytest.fixture(scope="module")
-def cps():
-    return load_cpsmarch2015()
+from stratindex import srank, strat
 
 
 def _subset(cps, n=800):

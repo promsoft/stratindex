@@ -56,41 +56,48 @@ def _resolve_inputs(fn_name, args, outcome, strata, weights, group, group_name):
         raise TypeError(
             f"{fn_name}() takes at most 3 positional arguments (outcome, strata, weights)"
         )
-    positional = list(args) + [None] * (3 - len(args))
-    for name, pos, kw in zip(
-        ("outcome", "strata", "weights"), positional, (outcome, strata, weights), strict=True
-    ):
-        if pos is not None and kw is not None:
+    supplied = {"outcome": outcome, "strata": strata, "weights": weights}
+    for name, value in zip(("outcome", "strata", "weights"), args, strict=False):
+        if supplied[name] is not None:
             raise TypeError(f"{fn_name}() got multiple values for argument '{name}'")
-    outcome = outcome if outcome is not None else positional[0]
-    strata = strata if strata is not None else positional[1]
-    weights = weights if weights is not None else positional[2]
-    if outcome is None or strata is None:
+        supplied[name] = value
+    if supplied["outcome"] is None or supplied["strata"] is None:
         raise TypeError(f"{fn_name}() requires outcome and strata")
-    return outcome, strata, weights, group, group_name
+    return supplied["outcome"], supplied["strata"], supplied["weights"], group, group_name
 
 
-def _index_only(outcome, strata_codes, weights, ordered: bool, n_strata: int) -> float:
+def _stratum_mean_rank(strata_codes, weights, prank) -> tuple[np.ndarray, np.ndarray]:
+    """Per-stratum weighted mean percentile rank and total weight."""
+    w_by_stratum = np.bincount(strata_codes, weights=weights)
+    s_prank = np.bincount(strata_codes, weights=weights * prank) / w_by_stratum
+    return s_prank, w_by_stratum
+
+
+def _sorted_kernel_input(prank, strata_codes, weights, ordered: bool, s_prank):
+    """Rows sorted by stratum position — the layout the pairwise kernels expect."""
+    sort_by = strata_codes.astype(float) if ordered else s_prank[strata_codes]
+    order = np.argsort(sort_by, kind="stable")
+    return prank[order], sort_by[order], weights[order], order
+
+
+def _index_only(outcome, strata_codes, weights, ordered: bool) -> float:
     """Overall index for already-encoded complete cases (bootstrap replicate)."""
     n = len(outcome)
     w = weights / weights.sum() * n
     prank = wtd_rank(outcome, w) / n
-    with np.errstate(invalid="ignore", divide="ignore"):
-        w_by = np.bincount(strata_codes, weights=w, minlength=n_strata)
-        s_prank = np.bincount(strata_codes, weights=w * prank, minlength=n_strata) / w_by
-        sort_by = strata_codes.astype(float) if ordered else s_prank[strata_codes]
-        order = np.argsort(sort_by, kind="stable")
-        deno, nume = pair_sums(prank[order], sort_by[order], w[order])
-        return float(nume / deno)
+    s_prank, _ = _stratum_mean_rank(strata_codes, w, prank)
+    y, r, ws, _ = _sorted_kernel_input(prank, strata_codes, w, ordered, s_prank)
+    deno, nume = pair_sums(y, r, ws)
+    with np.errstate(invalid="ignore"):
+        return float(np.divide(nume, deno))
 
 
 def _bootstrap_se(cd: CleanData, ordered: bool, n_boot: int, random_state) -> float:
     rng = np.random.default_rng(random_state)
     reps = np.empty(n_boot)
-    k = len(cd.strata_levels)
     for b in range(n_boot):
         idx = rng.integers(0, cd.n, cd.n)
-        reps[b] = _index_only(cd.outcome[idx], cd.strata_codes[idx], cd.weights[idx], ordered, k)
+        reps[b] = _index_only(cd.outcome[idx], cd.strata_codes[idx], cd.weights[idx], ordered)
     reps = reps[np.isfinite(reps)]  # degenerate resamples (no comparable pairs)
     if len(reps) < 2:
         return float("nan")
@@ -99,13 +106,12 @@ def _bootstrap_se(cd: CleanData, ordered: bool, n_boot: int, random_state) -> fl
 
 def _summarize(cd: CleanData) -> dict[str, np.ndarray]:
     """Per-stratum population share and average percentile rank."""
-    k = len(cd.strata_levels)
-    w_by_stratum = np.bincount(cd.strata_codes, weights=cd.weights, minlength=k)
-    share = w_by_stratum / cd.weights.sum()
-    s_prank = (
-        np.bincount(cd.strata_codes, weights=cd.weights * cd.prank, minlength=k) / w_by_stratum
-    )
-    return {"strata": cd.strata_levels, "share": share, "s_prank": s_prank}
+    s_prank, w_by_stratum = _stratum_mean_rank(cd.strata_codes, cd.weights, cd.prank)
+    return {
+        "strata": cd.strata_levels,
+        "share": w_by_stratum / cd.weights.sum(),
+        "s_prank": s_prank,
+    }
 
 
 def _raw(cd: CleanData) -> dict[str, np.ndarray]:
@@ -222,40 +228,34 @@ def strat(
         raise ValueError("ordered has to be a valid logical scalar")
     if se_method not in ("approx", "bootstrap"):
         raise ValueError('se_method has to be "approx" or "bootstrap"')
+    if se_method == "bootstrap" and (not isinstance(n_boot, int) or n_boot < 2):
+        raise ValueError("n_boot has to be an integer >= 2")
 
     cd = clean(outcome, strata, weights=weights, group=group)
     strata_info = _summarize(cd)
-
-    row_s_prank = strata_info["s_prank"][cd.strata_codes]
-    if ordered:
-        sort_by = cd.strata_codes.astype(float)
-    else:
-        sort_by = row_s_prank
-    order = np.argsort(sort_by, kind="stable")
-    y = cd.prank[order]
-    r = sort_by[order]
-    w = cd.weights[order]
+    y, r, w, order = _sorted_kernel_input(
+        cd.prank, cd.strata_codes, cd.weights, ordered, strata_info["s_prank"]
+    )
 
     decomposition = None
     within_group = None
-    if cd.group_codes is None or len(cd.group_levels) == 1:
-        deno, nume = pair_sums(y, r, w)
-        with np.errstate(invalid="ignore"):
-            index = nume / deno
-    else:
-        c = cd.group_codes[order]
-        sums = pair_sums_by(y, r, w, c, len(cd.group_levels))
-        deno = sums["deno_within"] + sums["deno_between"]
-        with np.errstate(invalid="ignore", divide="ignore"):
-            index = (sums["nume_within"] + sums["nume_between"]) / deno
+    with np.errstate(invalid="ignore", divide="ignore"):
+        if cd.group_codes is None or len(cd.group_levels) == 1:
+            deno, nume = pair_sums(y, r, w)
+            index = np.divide(nume, deno)
+        else:
+            c = cd.group_codes[order]
+            sums = pair_sums_by(y, r, w, c, len(cd.group_levels))
+            deno = sums["deno_within"] + sums["deno_between"]
+            index = np.divide(sums["nume_within"] + sums["nume_between"], deno)
             decomposition = {
                 "within": {
-                    "weight": sums["deno_within"] / deno,
-                    "strat": sums["nume_within"] / sums["deno_within"],
+                    "weight": np.divide(sums["deno_within"], deno),
+                    "strat": np.divide(sums["nume_within"], sums["deno_within"]),
                 },
                 "between": {
-                    "weight": sums["deno_between"] / deno,
-                    "strat": sums["nume_between"] / sums["deno_between"],
+                    "weight": np.divide(sums["deno_between"], deno),
+                    "strat": np.divide(sums["nume_between"], sums["deno_between"]),
                 },
             }
             within_group = {
@@ -265,8 +265,6 @@ def strat(
             }
 
     if se_method == "bootstrap":
-        if not isinstance(n_boot, int) or n_boot < 2:
-            raise ValueError("n_boot has to be an integer >= 2")
         std_error = _bootstrap_se(cd, ordered, n_boot, random_state)
     else:
         # approximate standard error (Goodman & Kruskal 1963)

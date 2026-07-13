@@ -1,26 +1,24 @@
 """Pairwise-comparison kernels.
 
-Ports of ``strat_cpp`` and ``strat_cpp_by`` from ``src/strat_cpp.cpp`` in the
-R package. Inputs must be sorted ascending by ``r``. A pair (i, j), i < j,
-contributes ``w_i * w_j`` to the denominator and ``sign(y_j - y_i) * w_i *
-w_j`` to the numerator, unless ``r_j == r_i`` (same stratum position) or
-``y_j == y_i`` (tied outcome), in which case it is skipped.
+O(n log n) ports of ``strat_cpp`` and ``strat_cpp_by`` from
+``src/strat_cpp.cpp`` in the R package. Inputs must be sorted ascending by
+``r``. A pair (i, j), i < j, contributes ``w_i * w_j`` to the denominator and
+``sign(y_j - y_i) * w_i * w_j`` to the numerator, unless ``r_j == r_i`` (same
+stratum position) or ``y_j == y_i`` (tied outcome), in which case it is
+skipped.
 
-Two implementations:
-
-- ``pair_sums`` / ``pair_sums_by`` — O(n log n): the denominator by
-  inclusion-exclusion over tie blocks, the numerator by weighted
-  inversion counting with a Fenwick tree. Used by the public API.
-- ``pair_sums_blocked`` / ``pair_sums_by_blocked`` — the original O(n²)
-  blocked, vectorized NumPy port, kept as an independent reference for
-  the test suite.
+The denominator is computed by inclusion-exclusion over tie blocks
+(``T - A - B + AB``); the numerator is a weighted concordant-minus-discordant
+count over pairs with distinct ``r``, computed blockwise (equal-``r`` block
+by block, vectorized over y ranks) or, when there are very many blocks, by a
+Fenwick tree.
 """
 
 from __future__ import annotations
 
-import numpy as np
+import itertools
 
-_BLOCK = 2048
+import numpy as np
 
 
 def _tie_weight(codes: np.ndarray, w: np.ndarray) -> float:
@@ -30,18 +28,29 @@ def _tie_weight(codes: np.ndarray, w: np.ndarray) -> float:
     return 0.5 * float((wb * wb - qb).sum())
 
 
-def _signed_pair_sum(y_codes: np.ndarray, r_codes: np.ndarray, w: np.ndarray) -> float:
-    """Weighted concordant-minus-discordant sum over pairs with distinct r.
+def _signed_pair_sum_vec(y_codes, w, bounds, n_y) -> float:
+    """Blockwise numerator: one bincount + cumsum of inserted weights per r-block."""
+    acc = np.zeros(n_y)
+    cum = None
+    nume = 0.0
+    for i, j in itertools.pairwise(bounds):
+        yc = y_codes[i:j]
+        if i:
+            if cum is None:
+                cum = np.cumsum(acc)
+            below = np.where(yc > 0, cum[yc - 1], 0.0)
+            above = cum[-1] - cum[yc]
+            nume += float((w[i:j] * (below - above)).sum())
+        acc += np.bincount(yc, weights=w[i:j], minlength=n_y)
+        cum = None
+    return nume
 
-    Processes blocks of equal ``r`` in ascending order, maintaining a Fenwick
-    tree of inserted weights indexed by y rank: for every item, previously
-    inserted items all have strictly smaller ``r``, so those with smaller
-    (larger) ``y`` form concordant (discordant) pairs. Ties in ``y``
-    contribute zero, matching sign() == 0 in the reference implementation.
-    """
-    n = len(y_codes)
-    n_y = int(y_codes.max()) + 1 if n else 0
+
+def _signed_pair_sum_bit(y_codes, w, bounds, n_y) -> float:
+    """Fenwick-tree numerator: O(n log n) regardless of the number of r-blocks."""
     tree = [0.0] * (n_y + 1)
+    y_list = y_codes.tolist()
+    w_list = w.tolist()
 
     def add(i: int, v: float) -> None:
         i += 1
@@ -58,40 +67,56 @@ def _signed_pair_sum(y_codes: np.ndarray, r_codes: np.ndarray, w: np.ndarray) ->
 
     nume = 0.0
     added = 0.0
-    i = 0
-    while i < n:
-        j = i
-        while j < n and r_codes[j] == r_codes[i]:
-            j += 1
+    for i, j in itertools.pairwise(bounds):
         for k in range(i, j):
-            below = prefix(int(y_codes[k]))
-            above = added - prefix(int(y_codes[k]) + 1)
-            nume += w[k] * (below - above)
+            below = prefix(y_list[k])
+            above = added - prefix(y_list[k] + 1)
+            nume += w_list[k] * (below - above)
         for k in range(i, j):
-            add(int(y_codes[k]), float(w[k]))
-            added += w[k]
-        i = j
+            add(y_list[k], w_list[k])
+            added += w_list[k]
     return nume
 
 
+def _signed_pair_sum(y_codes: np.ndarray, r_codes: np.ndarray, w: np.ndarray, n_y: int) -> float:
+    """Weighted concordant-minus-discordant sum over pairs with distinct r.
+
+    Only pairs from different r-blocks count; ties in ``y`` contribute zero,
+    matching ``sign() == 0`` in the reference implementation.
+    """
+    n = len(y_codes)
+    if n == 0:
+        return 0.0
+    boundaries = np.flatnonzero(r_codes[1:] != r_codes[:-1]) + 1
+    bounds = [0, *boundaries.tolist(), n]
+    k = len(bounds) - 1
+    # the blockwise pass costs O(k * n_y) numpy element-ops, the Fenwick loop
+    # O(n log n) python-ops (roughly 50x more expensive each); in practice k
+    # (the number of strata) is small and the blockwise pass wins by ~100x
+    if k * n_y <= 50 * n * max(1.0, np.log2(n)):
+        return _signed_pair_sum_vec(y_codes, w, bounds, n_y)
+    return _signed_pair_sum_bit(y_codes, w, bounds, n_y)
+
+
 def pair_sums(y: np.ndarray, r: np.ndarray, w: np.ndarray) -> tuple[float, float]:
-    """Return ``(deno, nume)`` summed over all valid pairs in O(n log n)."""
+    """Return ``(deno, nume)`` summed over all valid pairs."""
     w = np.asarray(w, dtype=float)
     _, y_codes = np.unique(y, return_inverse=True)
     _, r_codes = np.unique(r, return_inverse=True)  # r sorted -> codes ascending
+    n_y = int(y_codes.max()) + 1 if len(w) else 0
 
     s = w.sum()
     q = (w * w).sum()
     total = 0.5 * float(s * s - q)
     same_r = _tie_weight(r_codes, w)
     same_y = _tie_weight(y_codes, w)
-    n_y = int(y_codes.max()) + 1 if len(w) else 0
-    same_both = _tie_weight(r_codes.astype(np.int64) * n_y + y_codes, w)
+    # densify the (r, y) cell key so bincount memory stays O(n)
+    _, cell_codes = np.unique(r_codes.astype(np.int64) * n_y + y_codes, return_inverse=True)
+    same_both = _tie_weight(cell_codes, w)
 
     deno = total - same_r - same_y + same_both
-    nume = _signed_pair_sum(y_codes, r_codes, w)
-    # np.float64 so that downstream 0/0 yields NaN (as in R), not ZeroDivisionError
-    return np.float64(deno), np.float64(nume)
+    nume = _signed_pair_sum(y_codes, r_codes, w, n_y)
+    return deno, nume
 
 
 def pair_sums_by(
@@ -101,7 +126,7 @@ def pair_sums_by(
     c: np.ndarray,
     n_groups: int,
 ) -> dict[str, np.ndarray | float]:
-    """Group decomposition of the pairwise sums in O(n log n).
+    """Group decomposition of the pairwise sums.
 
     Within-group sums are computed independently per group (subsetting keeps
     the r order); between-group sums are the total minus the within part.
@@ -114,8 +139,8 @@ def pair_sums_by(
             deno_by[g], nume_by[g] = pair_sums(y[idx], r[idx], w[idx])
 
     deno_total, nume_total = pair_sums(y, r, w)
-    deno_within = deno_by.sum()  # np.float64: 0/0 must yield NaN downstream
-    nume_within = nume_by.sum()
+    deno_within = float(deno_by.sum())
+    nume_within = float(nume_by.sum())
     return {
         "deno_by": deno_by,
         "nume_by": nume_by,
@@ -123,79 +148,4 @@ def pair_sums_by(
         "nume_within": nume_within,
         "deno_between": deno_total - deno_within,
         "nume_between": nume_total - nume_within,
-    }
-
-
-def pair_sums_blocked(
-    y: np.ndarray, r: np.ndarray, w: np.ndarray, block: int = _BLOCK
-) -> tuple[float, float]:
-    """O(n²) reference: return ``(deno, nume)`` summed over all valid pairs."""
-    n = y.size
-    deno = 0.0
-    nume = 0.0
-    for i0 in range(0, n, block):
-        i1 = min(i0 + block, n)
-        yi = y[i0:i1, None]
-        ri = r[i0:i1, None]
-        wi = w[i0:i1, None]
-        for j0 in range(i0, n, block):
-            j1 = min(j0 + block, n)
-            yj = y[None, j0:j1]
-            rj = r[None, j0:j1]
-            valid = (rj > ri) & (yj != yi)
-            if j0 == i0:
-                valid &= np.arange(j0, j1)[None, :] > np.arange(i0, i1)[:, None]
-            wij = wi * w[None, j0:j1] * valid
-            deno += wij.sum()
-            nume += (np.sign(yj - yi) * wij).sum()
-    return deno, nume
-
-
-def pair_sums_by_blocked(
-    y: np.ndarray,
-    r: np.ndarray,
-    w: np.ndarray,
-    c: np.ndarray,
-    n_groups: int,
-    block: int = _BLOCK,
-) -> dict[str, np.ndarray | float]:
-    """O(n²) reference: group decomposition of the pairwise sums."""
-    n = y.size
-    deno_by = np.zeros(n_groups)
-    nume_by = np.zeros(n_groups)
-    deno_between = 0.0
-    nume_between = 0.0
-    for i0 in range(0, n, block):
-        i1 = min(i0 + block, n)
-        yi = y[i0:i1, None]
-        ri = r[i0:i1, None]
-        wi = w[i0:i1, None]
-        ci = c[i0:i1]
-        for j0 in range(i0, n, block):
-            j1 = min(j0 + block, n)
-            yj = y[None, j0:j1]
-            rj = r[None, j0:j1]
-            valid = (rj > ri) & (yj != yi)
-            if j0 == i0:
-                valid &= np.arange(j0, j1)[None, :] > np.arange(i0, i1)[:, None]
-            wij = wi * w[None, j0:j1] * valid
-            s = np.sign(yj - yi) * wij
-            same = c[None, j0:j1] == ci[:, None]
-            w_same = np.where(same, wij, 0.0)
-            s_same = np.where(same, s, 0.0)
-            deno_by += np.bincount(ci, weights=w_same.sum(axis=1), minlength=n_groups)
-            nume_by += np.bincount(ci, weights=s_same.sum(axis=1), minlength=n_groups)
-            # element-wise differences are exact where same-group entries cancel
-            deno_between += (wij - w_same).sum()
-            nume_between += (s - s_same).sum()
-
-    deno_within = deno_by.sum()
-    nume_within = nume_by.sum()
-    return {
-        "deno_by": deno_by,
-        "nume_by": nume_by,
-        "deno_within": deno_within,
-        "nume_within": nume_within,
-        "deno_between": deno_between,
-        "nume_between": nume_between,
     }

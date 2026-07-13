@@ -4,11 +4,6 @@ import pytest
 from stratindex import load_cpsmarch2015, strat
 
 
-@pytest.fixture(scope="module")
-def cps():
-    return load_cpsmarch2015()
-
-
 def test_shape_and_dtypes(cps):
     assert set(cps) == {"income", "big_class", "micro_class", "education", "weight"}
     assert all(len(v) == 14358 for v in cps.values())
