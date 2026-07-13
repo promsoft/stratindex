@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.1 (2026-07-13)
+
+Internal cleanup and performance release; no API or numerical changes.
+
+- **Faster numerator**: pairwise concordant-minus-discordant sums are now
+  computed blockwise (vectorized per equal-rank block) with a Fenwick-tree
+  fallback for inputs with very many distinct stratum positions. Bootstrap
+  SE with default `n_boot=200` at n=10,000: ~11 s → ~0.9 s; the full
+  `cpsmarch2015` example with decomposition: ~0.15 s → ~0.02 s.
+- **O(n) memory** for the tie-block denominator with many strata (the
+  (r, y) cell key is densified before `bincount`; previously hundreds of MB
+  with thousands of strata).
+- `strat()` and the bootstrap replicates now share one implementation of
+  the stratum-ordering pipeline, so they cannot drift apart.
+- The O(n²) reference kernels moved from the package into the test suite.
+
 ## 0.2.0 (2026-07-13)
 
 - **O(n log n) kernel**: pairwise comparisons are now computed via weighted
